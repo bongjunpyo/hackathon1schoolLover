@@ -120,7 +120,7 @@ localStorage 키: `"activities"` (JSON 배열). 활동 1건은 아래 형태다.
 
 ```js
 // js/store/store.js — 효민
-Store.getAll()              // → Activity[]  createdAt 내림차순 (최신순)
+Store.getAll()              // → Activity[]  date 내림차순 → 같은 날이면 createdAt 내림차순
 Store.add(input)            // → { ok: true, activity } | { ok: false, errors: { 필드명: '한글 메시지' } }
 Store.remove(id)            // → boolean  (없는 id면 false)
 Store.exportJson()          // → string    (다운로드용 JSON 문자열)

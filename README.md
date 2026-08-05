@@ -383,9 +383,14 @@ if (!result.ok) showErrors(result.errors);
 
 ```
 localStorage 파싱      깨진 JSON 이면 빈 배열
-  -> createdAt 내림차순 정렬
+  -> date 내림차순 정렬  같은 날이면 createdAt 내림차순
   -> Activity[]
 ```
+
+**`createdAt`이 아니라 `date`를 1순위로 쓴다.** `seedSampleData()`는 30일치를 반복문 한 번에
+만들기 때문에 `createdAt`이 전부 같은 시각이고 밀리초 단위로만 다르다. `createdAt`으로 정렬하면
+목록이 날짜순이 아니라 **생성 순서**대로 나온다. 명세서의 "최신순" 요건이 깨지는 자리다.
+과거 활동을 나중에 입력했다고 목록 맨 위에 뜨는 것도 사용자 입장에서는 틀린 동작이다.
 
 목록 조회, 통계, 랭킹이 전부 이 배열 하나에서 나온다. `Analytics.*`는 이 배열을 인자로 받는다.
 
@@ -447,7 +452,7 @@ hackathon1schoolLover/
 |---|---|
 | `index.html` / `style.css` / `js/ui/ui.js` | 작업 중 |
 | `js/analytics/recommend.js` | `BJP` 브랜치. [이슈 #2](../../issues/2)에서 B-2로 연기 |
-| `docs/AI_USAGE.md` | 미작성 |
+| `docs/AI_USAGE.md` | 효민 파트 작성 완료. 동제·준표 파트 대기 |
 
 ### 각 파일이 하는 일
 
@@ -486,7 +491,7 @@ hackathon1schoolLover/
 ### `Store` — 데이터 계층
 
 ```js
-Store.getAll()              // → Activity[]  createdAt 내림차순
+Store.getAll()              // → Activity[]  date 내림차순 → 같은 날이면 createdAt 내림차순
 Store.add(input)            // → { ok: true, activity } | { ok: false, errors }
 Store.remove(id)            // → boolean  없는 id 면 false
 Store.clearAll()            // → void
@@ -558,7 +563,11 @@ kcalOut = KCAL_PER_MIN[category] * durationMin
 ## 10. 없는 값을 다루는 규칙
 
 `weightKg`, `kcalIn`, `exercise`는 선택 입력이라 **없는 기록이 섞여 있다.**
-샘플 데이터에도 일부러 빈 값이 들어간다. 통계가 여기서 깨지기 쉽다.
+샘플 데이터에도 `kcalIn`을 일부러 비워 넣는다. 통계가 여기서 깨지기 쉽다.
+
+**단 `weightKg`만은 샘플 데이터 전 기록에 넣는다.** 감량 효과 랭킹이 기록 사이의 체중 변화로
+효과를 귀속시키기 때문이다. 체중이 비어 있거나 기록 간격이 3일을 넘으면 그 구간이 통째로
+분석에서 빠져 랭킹이 비게 된다. "없는 값 건너뛰기" 경로는 `kcalIn` 쪽에서 검증된다.
 
 - 없는 값은 **0으로 취급하지 않는다.** 집계 대상에서 아예 제외한다
 - 평균의 분모는 전체 건수가 아니라 **값이 있는 건수**다
