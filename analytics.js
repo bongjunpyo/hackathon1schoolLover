@@ -303,6 +303,141 @@ function rankByCount(countMap, keyName) {
     .sort((a, b) => b.count - a.count);
 }
 
+// 효과 랭킹에 넣으려면 최소 이만큼의 표본이 필요하다
+const MIN_EFFECT_SAMPLES = 3;
+// 체중 기록 간격이 이보다 벌어지면 그 사이 변화를 특정 날에 귀속하지 않는다
+const MAX_GAP_DAYS = 3;
+
+// 날짜별 하루당 체중 변화를 구한다
+// 기록 간격이 들쭉날쭉하므로 경과일수로 나눠 하루당으로 정규화한다
+function dailyWeightChange(activities) {
+  const weightByDate = new Map();
+  for (const a of activities) {
+    if (typeof a.weightKg !== 'number' || !a.date) continue;
+    weightByDate.set(a.date, a.weightKg);
+  }
+
+  const dates = Array.from(weightByDate.keys()).sort();
+  const changes = {};
+  for (let i = 0; i + 1 < dates.length; i++) {
+    const from = dates[i];
+    const to = dates[i + 1];
+    const gapDays = daysSince(from, to);
+    if (gapDays <= 0 || gapDays > MAX_GAP_DAYS) continue;
+    changes[from] = (weightByDate.get(to) - weightByDate.get(from)) / gapDays;
+  }
+  return changes;
+}
+
+// 항목별로 그날의 체중 변화를 귀속해 감량 효과 순으로 매긴다
+// extractItems: 활동 1건에서 집계할 이름 배열을 뽑는 함수
+function rankByWeightEffect(activities, extractItems) {
+  const changes = dailyWeightChange(activities);
+  const samplesByItem = {};
+
+  for (const a of activities) {
+    const change = changes[a.date];
+    if (change === undefined) continue;
+    for (const item of extractItems(a)) {
+      if (!item) continue;
+      if (!samplesByItem[item]) samplesByItem[item] = [];
+      samplesByItem[item].push(change);
+    }
+  }
+
+  const result = [];
+  for (const name of Object.keys(samplesByItem)) {
+    const samples = samplesByItem[name];
+    if (samples.length < MIN_EFFECT_SAMPLES) continue;
+    result.push({
+      name: name,
+      avgChangePerDay: mean(samples),
+      sampleCount: samples.length,
+      deviation: stdDev(samples),
+    });
+  }
+  // 하루당 변화가 가장 음수인 항목이 감량 효과 1위다
+  return result.sort((a, b) => a.avgChangePerDay - b.avgChangePerDay);
+}
+
+// 실제로 체중이 줄어든 항목만 남긴다. 늘어난 항목은 감량 순위가 아니다.
+function onlyLosing(ranked, limit) {
+  return ranked.filter((item) => item.avgChangePerDay < 0).slice(0, limit || 3);
+}
+
+// 체중이 늘어난 항목을 증가폭이 큰 순으로 남긴다
+function onlyGaining(ranked, limit) {
+  return ranked
+    .filter((item) => item.avgChangePerDay > 0)
+    .sort((a, b) => b.avgChangePerDay - a.avgChangePerDay)
+    .slice(0, limit || 3);
+}
+
+// 감량 효과가 큰 운동 상위 N개
+function topExercises(activities, limit) {
+  return onlyLosing(rankByWeightEffect(activities, (a) => [a.exercise]), limit);
+}
+
+// 감량 효과가 큰 음식 상위 N개
+function topFoods(activities, limit) {
+  return onlyLosing(rankByWeightEffect(activities, (a) => a.foods || []), limit);
+}
+
+// 체중이 늘어난 운동 상위 N개 (피해야 할 항목)
+function worstExercises(activities, limit) {
+  return onlyGaining(rankByWeightEffect(activities, (a) => [a.exercise]), limit);
+}
+
+// 체중이 늘어난 음식 상위 N개 (피해야 할 항목)
+function worstFoods(activities, limit) {
+  return onlyGaining(rankByWeightEffect(activities, (a) => a.foods || []), limit);
+}
+
+// 운동마다 가장 자주 기록된 카테고리와 장소를 찾는다
+// 날씨에 맞는 운동을 고를 때 실내/야외 판정에 쓴다
+function exerciseProfiles(activities) {
+  const profiles = {};
+
+  for (const a of activities) {
+    if (!a.exercise) continue;
+    if (!profiles[a.exercise]) {
+      profiles[a.exercise] = { exercise: a.exercise, categories: {}, places: {}, count: 0 };
+    }
+    const profile = profiles[a.exercise];
+    profile.count += 1;
+    if (a.category) profile.categories[a.category] = (profile.categories[a.category] || 0) + 1;
+    if (a.place) profile.places[a.place] = (profile.places[a.place] || 0) + 1;
+  }
+
+  const result = {};
+  for (const name of Object.keys(profiles)) {
+    const profile = profiles[name];
+    const topCategory = rankByCount(profile.categories, 'category')[0];
+    const topPlace = rankByCount(profile.places, 'place')[0];
+    result[name] = {
+      exercise: name,
+      count: profile.count,
+      category: topCategory ? topCategory.category : null,
+      place: topPlace ? topPlace.place : null,
+    };
+  }
+  return result;
+}
+
+// 날씨 버킷별로 실제 수행한 운동 횟수를 센다
+// 나쁜 날씨에도 해본 운동인지 판단해 다음 계획에 배치할 때 쓴다
+function exercisesByWeather(activities, weatherByDate) {
+  const counts = {};
+  for (const a of activities) {
+    const weather = weatherByDate[a.date];
+    if (!weather || !a.exercise) continue;
+    const bucket = classifyWeather(weather.tempMean, weather.precipSum);
+    if (!counts[bucket]) counts[bucket] = {};
+    counts[bucket][a.exercise] = (counts[bucket][a.exercise] || 0) + 1;
+  }
+  return counts;
+}
+
 // 한글 받침 유무에 맞는 조사를 붙인다
 function withParticle(word, particleWithJong, particleWithoutJong) {
   const HANGUL_START = 0xac00;
