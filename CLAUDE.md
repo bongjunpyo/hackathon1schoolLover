@@ -2,7 +2,7 @@
 
 - 팀번호 / 팀이름: 1팀 / hackathon--1
 - 팀원: 동제(프론트엔드), 효민(데이터 계층), 준표(데이터 처리)
-- 작성: 2026-08-05 13:50 / 수정: 14:05 역할 재정의·스키마 확장 / 14:25 역할별 문서 분리 / 14:35 다이어트 중심으로 방향 전환
+- 작성: 2026-08-05 13:50 / 수정: 14:05 역할 재정의·스키마 확장 / 14:25 역할별 문서 분리 / 14:35 다이어트 중심으로 방향 전환 / 15:15 랭킹 확장 채택(이슈 #2 B) — `exercise`·`foods` 추가
 
 방향이 "운동 기록"에서 **"다이어트 기록"** 으로 바뀌었다. 주인공은 체중과 칼로리 수지이고,
 활동은 그 숫자가 왜 그렇게 움직였는지를 설명하는 근거다.
@@ -30,7 +30,7 @@
 
 - **장소와 참여 인원은 뺄 수 없다.** 개인 다이어트 기록으로 기울수록 어색해지지만 명세 필수 입력이다.
   동아리 활동 기록이라는 틀을 유지한다
-- 확장 필드(`category`, `durationMin`, `weightKg`, `kcalIn`)는 **덧붙이는 것**이지 대체가 아니다
+- 확장 필드(`category`, `durationMin`, `weightKg`, `kcalIn`, `exercise`, `foods`)는 **덧붙이는 것**이지 대체가 아니다
 
 **선택 기능은 명세 목록의 용어를 그대로 쓴다.** README에 적을 때 심사자가 바로 매칭할 수 있어야 한다.
 
@@ -94,14 +94,24 @@ localStorage 키: `"activities"` (JSON 배열). 활동 1건은 아래 형태다.
   // --- 확장 필드 ---
   category,         // '유산소' | '근력' | '스트레칭'
   durationMin,      // 운동 시간(분)
-  weightKg,         // 당일 체중, 선택 입력
-  kcalIn            // 당일 섭취 칼로리, 선택 입력
+  weightKg,         // 당일 체중, 선택 입력 — 미입력은 null
+  kcalIn,           // 당일 섭취 칼로리, 선택 입력 — 미입력은 null
+  exercise,         // '러닝' | '헬스' | '수영' | '자전거' | '등산' — 선택 입력, 미입력은 null
+  foods             // string[] 체크박스로 고른 음식. 미입력은 [] (null 아님)
 }
 ```
 
 - `date`는 `'YYYY-MM-DD'` 문자열, `createdAt`은 ISO 문자열
 - 고정 필드는 명세서 요건이므로 **덮지 말고 확장만 한다**
-- 확장 필드는 전부 없을 수 있다고 보고 읽는다. `weightKg`가 `undefined`인 기록을 만나도 죽지 않아야 한다(집계에서 제외)
+- 확장 필드는 전부 없을 수 있다고 보고 읽는다. `weightKg`가 없는 기록을 만나도 죽지 않아야 한다(집계에서 제외)
+- **미입력은 `null`로 통일한다.** `undefined`는 `JSON.stringify`에서 키째 사라져
+  내보내기 → 가져오기 왕복에 필드 유무가 달라진다. 읽는 쪽 가드는 한 형태로 쓴다.
+  ```js
+  const has = v => v != null && !Number.isNaN(v);   // null·undefined 동시에 잡는다
+  ```
+- `exercise`와 `foods`는 **랭킹의 집계 키**다. 자유 텍스트로 받지 않는다 —
+  "닭가슴살"과 "닭 가슴살"이 다른 항목이 되면 순위가 무너진다. 드롭다운·체크박스로만 입력받는다
+- `foods`만 `null` 대신 `[]`를 쓴다. `analytics.js`가 이미 `a.foods || []`로 읽고 있어 배열로 통일하는 편이 일관된다
 
 ## 인터페이스 계약
 
@@ -110,7 +120,7 @@ localStorage 키: `"activities"` (JSON 배열). 활동 1건은 아래 형태다.
 
 ```js
 // js/store/store.js — 효민
-Store.getAll()              // → Activity[]  createdAt 내림차순 (최신순)
+Store.getAll()              // → Activity[]  date 내림차순 → 같은 날이면 createdAt 내림차순
 Store.add(input)            // → { ok: true, activity } | { ok: false, errors: { 필드명: '한글 메시지' } }
 Store.remove(id)            // → boolean  (없는 id면 false)
 Store.exportJson()          // → string    (다운로드용 JSON 문자열)
@@ -127,9 +137,19 @@ Analytics.monthlyCount(list)   // → [{ month: '2026-08', count }]        오�
 Analytics.byCategory(list)     // → [{ category, count, totalMin }]      건수 내림차순
 Analytics.weightTrend(list)    // → [{ date, weightKg }]                 weightKg 있는 것만, 날짜 오름차순
 Analytics.kcalBalance(list)    // → [{ date, kcalIn, kcalOut, net }]     둘 중 하나라도 있는 날만
+
+// --- 랭킹 확장 (이슈 #2 B-1). analytics.js에 이미 구현·노출되어 있다 ---
+Analytics.topExercises(list, n)    // → 감량 효과 상위 운동
+Analytics.topFoods(list, n)        // → 감량 효과 상위 음식
+Analytics.worstExercises(list, n)  // → 회피 대상 운동
+Analytics.worstFoods(list, n)      // → 회피 대상 음식
 ```
 
-`errors`의 키는 필드명 그대로 쓴다: `title`, `date`, `memberCount`, `category`, `durationMin`, `weightKg`, `kcalIn`.
+`errors`의 키는 필드명 그대로 쓴다:
+`title`, `date`, `memberCount`, `category`, `durationMin`, `weightKg`, `kcalIn`, `exercise`, `foods`.
+
+**날씨 기반 계획 추천(`recommend.js`)은 계약에 넣지 않는다.** 런타임에 외부 API를 치기 때문에
+`file://` 실행과 오프라인에서 죽는다. `BJP` 브랜치에 두고, 필수 기능과 B-1이 끝난 뒤에만 검토한다.
 
 ## 검증 항목
 
@@ -146,6 +166,8 @@ Analytics.kcalBalance(list)    // → [{ date, kcalIn, kcalOut, net }]     둘 �
 - `durationMin`은 1 이상의 정수
 - `weightKg`, `kcalIn`은 미입력 허용. 입력했다면 0보다 큰 수만 허용
 - **빈 문자열은 `0`이 아니라 미입력으로 처리한다** (0kg가 평균에 섞이면 통계가 무너진다)
+- `exercise`는 미입력 허용. 입력했다면 `'러닝' | '헬스' | '수영' | '자전거' | '등산'` 중 하나
+- `foods`는 미입력이면 `[]`. 배열이 아니면 거부하고, 허용 목록 밖의 값은 걸러낸다
 
 ## 경계 규칙
 
