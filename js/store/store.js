@@ -159,8 +159,25 @@ const Store = (function () {
     return { ok: true, activity };
   }
 
+  // 삭제 확인창은 UI가 띄운다. 이 파일은 화면을 모른다.
+  function remove(id) {
+    const list = readRaw();
+    const next = list.filter(function (activity) {
+      return activity.id !== id;
+    });
+    if (next.length === list.length) return false;
+    write(next);
+    return true;
+  }
+
+  function clearAll() {
+    localStorage.removeItem(KEY);
+  }
+
   return {
     getAll: getAll,
     add: add,
+    remove: remove,
+    clearAll: clearAll,
   };
 })();
