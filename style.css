@@ -99,22 +99,74 @@ body {
   padding: 56px 0 72px;
 }
 
-/* 이미지가 먼저 오고 내용이 그 옆에 붙는 배치 */
-.hero--figure { grid-template-columns: .85fr 1fr; gap: 64px; padding-bottom: 40px; }
+/* ---------- 메인 소개 + 중앙 무대 ---------- */
 
-.hero__figure { justify-self: center; }
+.intro { padding: 64px 0 8px; text-align: center; }
+.intro h1 {
+  margin: 0 auto 16px;
+  font-family: var(--display); font-weight: 800; font-stretch: 84%;
+  font-size: clamp(2.25rem, 4.6vw, 3.5rem);
+  line-height: 1.08; letter-spacing: -.03em;
+  text-wrap: balance;
+}
+.intro h1 em { font-style: normal; color: var(--green); }
+.intro__lead { max-width: 46ch; margin: 0 auto; color: var(--muted); }
+
+/* 바깥 통이 높고 안쪽 무대가 sticky로 붙는다.
+   그 구간을 지나는 진행도가 단계가 되고, 단계마다 각도와 내용이 바뀐다. */
+.stage { position: relative; height: 420vh; }
+
+.stage__sticky {
+  position: sticky; top: 0;
+  height: 100vh;
+  display: grid; place-items: center;
+  overflow: hidden;
+}
+.stage__inner {
+  position: relative;
+  width: 100%; max-width: 1080px; height: min(78vh, 620px);
+  margin: 0 auto;
+}
 
 .figure {
-  position: relative;
-  height: min(58vh, 460px);
+  position: absolute; left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  height: min(62vh, 500px);
   aspect-ratio: 200 / 520;
   perspective: 1100px;
 }
 .figure__spin {
   position: absolute; inset: 0;
   transform-style: preserve-3d;
-  animation: figure-turn 26s linear infinite;
+  /* 연속 회전이 아니라 단계마다 한 번에 돌아간다 */
+  transition: transform .85s cubic-bezier(.65,.02,.2,1);
 }
+
+/* 모델을 둘러싸고 하나씩 나타나는 기록 카드 */
+.fact {
+  position: absolute;
+  width: 268px;
+  opacity: 0;
+  transform: translateY(16px);
+  transition: opacity .55s ease, transform .55s ease;
+  pointer-events: none;
+}
+.fact.is-in { opacity: 1; transform: none; pointer-events: auto; }
+
+.fact--a { left: 0;   top: 4%; }
+.fact--b { right: 0;  top: 34%; }
+.fact--c { left: 4%;  bottom: 4%; }
+
+.stage__hint {
+  position: absolute; left: 50%; bottom: 26px;
+  transform: translateX(-50%);
+  margin: 0;
+  font-family: var(--mono); font-size: .75rem; color: var(--muted);
+}
+.stage__hint[hidden] { display: none; }
+
+/* 아래는 예전 배치에서 쓰던 것 — 지금은 record.html 미리보기에만 쓴다 */
+.hero__figure { justify-self: center; }
 .figure__ring {
   position: absolute; left: 50%; bottom: 1%;
   width: 76%; aspect-ratio: 1;
@@ -180,6 +232,10 @@ body {
   font-variant-numeric: tabular-nums;
 }
 .card__big sub { font-size: .28em; font-weight: 600; vertical-align: baseline; opacity: .6; }
+
+/* 값이 아직 없을 때. 큰 글씨로 대시를 찍으면 막대처럼 보여 고장으로 읽힌다 */
+.ph { font-family: var(--body); font-size: .3em; font-weight: 500; opacity: .6; }
+.ph + sub { display: none; }
 .card__foot { margin: 10px 0 0; font-family: var(--mono); font-size: .6875rem; opacity: .6; }
 
 /* 미니 스파크 막대 */
@@ -450,7 +506,24 @@ body {
   .bar { flex-wrap: wrap; gap: 12px; }
   .nav { order: 3; width: 100%; overflow-x: auto; }
   .hero, .hero--figure, .grid-2, .preview, .feats { grid-template-columns: 1fr; }
-  .figure { height: 300px; }
+
+  /* 좁은 화면에서는 겹칠 자리가 없다. sticky를 풀고 위아래로 쌓는다 */
+  .intro { padding: 32px 0 0; }
+  .stage { height: auto; }
+  .stage__sticky { position: static; height: auto; padding: 24px 0 40px; }
+  .stage__inner {
+    height: auto; padding: 0 20px;
+    display: grid; gap: 14px; justify-items: stretch;
+  }
+  .figure {
+    position: static; transform: none;
+    height: 300px; margin: 0 auto 8px;
+  }
+  .fact {
+    position: static; width: auto;
+    opacity: 1; transform: none; pointer-events: auto;
+  }
+  .stage__hint { display: none; }
   /* 좁은 화면에서는 스크롤 연출을 접는다. 세로로 겹치면 둘 다 안 읽힌다 */
   .scroll { height: auto; }
   .scroll__track { position: static; height: auto; padding: 40px 0 56px; }
@@ -473,7 +546,8 @@ body {
   .scroll__track { position: static; height: auto; padding: 40px 0 56px; }
   .scroll__spin { transform: none !important; }
   .step { opacity: 1; transform: none; transition: none; }
-  .figure__spin { animation: none; }
+  .figure__spin { transition: none; }
+  .fact { opacity: 1; transform: none; transition: none; pointer-events: auto; }
   /* AOS가 걸어둔 등장 애니메이션도 끈다. 내용은 바로 보여야 한다 */
   [data-aos] { opacity: 1 !important; transform: none !important; transition: none !important; }
 }
