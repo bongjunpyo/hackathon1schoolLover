@@ -125,86 +125,229 @@ start index.html         # Windows
 
 ## 6. 데이터 아키텍처
 
-### 계층 구조
+### 6.1 계층 구조
 
-세 계층이 한 방향으로만 의존한다. 이 방향이 세 명이 동시에 작업할 수 있는 근거다.
-
-```
-+---------------------------------------------------------+
-|  index.html / style.css / js/ui/ui.js        [동제]      |
-|  화면 렌더링, 이벤트 처리, 사용자 확인                    |
-+---------------------------------------------------------+
-        |                                |
-        | Store.*                        | Analytics.*
-        v                                v
-+----------------------------+  +------------------------------+
-|  js/store/store.js [효민]  |  |  js/analytics/               |
-|  localStorage 읽고 쓰기    |  |    analytics.js     [준표]   |
-|  스키마 / 검증 / 샘플 생성 |  |  순수 계산 함수              |
-+----------------------------+  +------------------------------+
-        |                                ^
-        v                                |
-+----------------------------+           |
-|  localStorage              |  Activity[] 를 인자로 받는다
-|  key: "activities"         |-----------+
-+----------------------------+
-```
-
-**경계 규칙 3줄**
-
-- `ui.js`는 localStorage를 직접 만지지 않는다. 항상 `Store`를 거친다
-- `analytics.js`는 DOM도 localStorage도 만지지 않는다. 배열을 받아 값을 돌려줄 뿐이다
-- `store.js`는 화면을 모른다. 에러를 `alert`하지 않고 `errors` 객체로 돌려준다
-
-`analytics.js`가 저장소를 모르기 때문에, `store.js`가 없어도 배열만 직접 만들어 테스트할 수 있다.
-실제로 개발 중 세 사람이 서로를 기다리지 않고 동시에 작업했다.
-
-### 저장 형식
-
-localStorage 키 하나에 JSON 배열로 통째 저장한다.
+세 계층이 **한 방향으로만** 의존한다. 이 방향이 세 명이 동시에 작업할 수 있는 근거다.
 
 ```
-localStorage["activities"] = '[{...}, {...}, ...]'
+                            사용자
+                              |
+              클릭 / 입력     |     화면 출력
+                              v
+   ========================================================
+                     PRESENTATION  [동제]
+   --------------------------------------------------------
+     index.html   style.css   js/ui/ui.js
+     렌더링 · 이벤트 처리 · 삭제 확인창 · 에러 메시지 표시
+   ========================================================
+         |                                    |
+         | Store.add()                        | Analytics.summary()
+         | Store.getAll()                     | Analytics.topFoods()
+         | Store.remove()                     | Analytics.monthlyCount()
+         v                                    v
+   ==========================    ===================================
+        PERSISTENCE  [효민]              COMPUTATION  [준표]
+   --------------------------    -----------------------------------
+     js/store/store.js             js/analytics/analytics.js
+     스키마 · 검증 · 직렬화        순수 함수 · 통계 · 감량 효과 랭킹
+     샘플 생성 · JSON 입출력       상태 없음 · 부수효과 없음
+   ==========================    ===================================
+         |                                    ^
+         | setItem / getItem                  |
+         v                          Activity[] 를 인자로 받는다
+   ==========================               |
+          localStorage           ------------+
+     key: "activities"
+     value: JSON 배열 문자열
+   ==========================
 ```
 
-레코드가 수백 건 수준이라 인덱스나 정규화가 필요 없다. 읽을 때 전체를 파싱하고,
-쓸 때 전체를 직렬화한다. 단순한 대신 저장 책임이 `store.js` 한 파일에 모인다.
+핵심은 **COMPUTATION 계층이 아래를 향하지 않는다**는 것이다.
+`analytics.js`는 저장소를 모르고, 배열을 인자로 받기만 한다.
+화살표가 위로 향하는 이유가 이것이다.
 
-### 스키마
+### 6.2 경계 규칙
+
+의존 방향을 강제하는 세 줄이다. 하나라도 어기면 병합할 때 터진다.
+
+| 계층 | 금지 | 이유 |
+|---|---|---|
+| `ui.js` | `localStorage` 직접 접근 | 저장 형식이 바뀌면 화면까지 고쳐야 한다 |
+| `analytics.js` | `document` · `localStorage` · `Store` 참조 | 배열만 알면 어디서든 테스트된다 |
+| `store.js` | `alert` · DOM 조작 | 에러는 `errors` 객체로 돌려주고 표시는 UI가 정한다 |
+
+이 규칙 덕분에 **`store.js`가 없던 시점에도 `analytics.js`를 완성하고 검증했다.**
+배열을 손으로 만들어 넣으면 그만이기 때문이다. 세 사람이 서로를 기다리지 않았다.
+
+### 6.3 데이터 흐름
+
+**쓰기 경로** — 검증을 통과하지 못하면 localStorage 에 도달하지 못한다.
+
+```
+  폼 입력
+    |
+    v
+  Store.add(input)
+    |
+    +--> validate(input) ------- 실패 --> { ok:false, errors } --> UI 가 필드별 메시지 표시
+    |                                                              (localStorage 변화 없음)
+    | 통과
+    v
+  buildActivity(input)      id 발급 · createdAt 기록 · 타입 정규화
+    |                       '' -> null,  없는 foods -> []
+    v
+  기존 배열 + 새 항목
+    |
+    v
+  localStorage.setItem("activities", JSON.stringify(list))
+    |
+    v
+  { ok:true, activity } --> UI 가 목록 다시 그림
+```
+
+**읽기 경로** — 모든 화면이 같은 배열 하나에서 갈라진다.
+
+```
+  localStorage.getItem("activities")
+    |
+    v
+  JSON.parse()  ---- 깨진 값 --> []  (throw 하지 않는다)
+    |
+    v
+  createdAt 내림차순 정렬
+    |
+    v
+  Activity[]
+    |
+    +--> 목록 화면            그대로 렌더링
+    +--> Analytics.summary()      --> 인원 합계 · 평균
+    +--> Analytics.monthlyCount() --> 월별 활동 횟수 차트
+    +--> Analytics.weightTrend()  --> 체중 추이
+    +--> Analytics.kcalBalance()  --> 칼로리 수지
+    +--> Analytics.topFoods()     --> 감량 효과 Top3
+    +--> Analytics.worstFoods()   --> 회피 항목
+```
+
+배열이 **단일 진실 공급원**이다. 화면마다 따로 저장하는 상태가 없어서
+등록·삭제 후 `getAll()` 한 번만 다시 부르면 모든 화면이 같이 맞춰진다.
+
+### 6.4 저장 형식
+
+localStorage 키 **하나**에 JSON 배열로 통째 저장한다.
+
+```
+  localStorage
+  +---------------------------------------------------------------+
+  | "activities" : '[{"id":"a1","title":"러닝 5km", ... }, {...}]' |
+  +---------------------------------------------------------------+
+```
+
+| | 이 방식 | 대안 (키를 레코드마다 분리) |
+|---|---|---|
+| 읽기 | 전체 파싱 1회 | 키 목록 스캔 + 개별 파싱 |
+| 쓰기 | 전체 직렬화 1회 | 해당 키만 갱신 |
+| 정렬·집계 | 배열 그대로 | 매번 모아서 재구성 |
+| 코드 | `store.js` 한 파일 | 키 관리 로직 추가 |
+
+레코드가 수백 건 수준이라 전체 직렬화 비용이 문제되지 않는다.
+**단순함을 택했고, 그 대가로 저장 책임이 한 파일에 모였다.**
+나중에 IndexedDB 로 바꾸더라도 `store.js` 내부만 고치면 위 두 계층은 그대로다.
+
+### 6.5 스키마
 
 활동 1건의 형태다. 명세서 고정 필드는 이름을 바꾸거나 지우지 않고, 확장 필드만 덧붙인다.
 
 ```js
 {
-  // --- 명세서 고정 필드 ---
-  id,           // string   Store가 발급. UI가 넘기지 않는다
-  title,        // string   활동명. 필수
-  date,         // string   'YYYY-MM-DD'. 미래 날짜 거부
-  place,        // string   장소
-  memberCount,  // number   참여 인원. 1 이상 정수
-  memo,         // string   메모
-  createdAt,    // string   ISO 문자열. Store가 발급
+  // === 명세서 고정 필드 (삭제·개명 금지) ===
+  id,           // string          Store 가 발급. UI 가 넘기지 않는다
+  title,        // string          활동명
+  date,         // string          'YYYY-MM-DD'
+  place,        // string          장소
+  memberCount,  // number          참여 인원
+  memo,         // string          메모
+  createdAt,    // string          ISO 문자열. Store 가 발급
 
-  // --- 확장 필드 ---
-  category,     // '유산소' | '근력' | '스트레칭'
-  durationMin,  // number         운동 시간(분). 1 이상 정수
-  weightKg,     // number | null  당일 체중. 미입력 null
-  kcalIn,       // number | null  당일 섭취 칼로리. 미입력 null
-  exercise,     // string | null  '러닝'|'헬스'|'수영'|'자전거'|'등산'
-  foods         // string[]       체크박스로 고른 음식. 미입력은 [] (null 아님)
+  // === 확장 필드 ===
+  category,     // '유산소'|'근력'|'스트레칭'
+  durationMin,  // number          운동 시간(분)
+  weightKg,     // number | null   당일 체중
+  kcalIn,       // number | null   당일 섭취 칼로리
+  exercise,     // string | null   '러닝'|'헬스'|'수영'|'자전거'|'등산'
+  foods         // string[]        체크박스로 고른 음식
 }
 ```
 
+| 필드 | 타입 | 필수 | 제약 | 쓰이는 곳 |
+|---|---|:---:|---|---|
+| `id` | string | 자동 | Store 발급, 중복 없음 | 삭제 대상 지정 |
+| `title` | string | O | 공백 제거 후 1자 이상 | 목록 표시 |
+| `date` | string | O | `YYYY-MM-DD`, 미래 거부 | 월별 집계, 체중 추이 |
+| `place` | string | | 제한 없음 | 목록 표시 |
+| `memberCount` | number | O | 1 이상 **정수** | 인원 합계·평균 |
+| `memo` | string | | 제한 없음 | 목록 표시 |
+| `createdAt` | string | 자동 | ISO 문자열 | 최신순 정렬 |
+| `category` | string | O | 3종 중 하나 | 카테고리 집계, 칼로리 소모 |
+| `durationMin` | number | O | 1 이상 정수 | 운동 시간 합계, 칼로리 소모 |
+| `weightKg` | number\|null | | 0 초과 | 체중 추이, **감량 효과 랭킹** |
+| `kcalIn` | number\|null | | 0 초과 | 칼로리 수지 |
+| `exercise` | string\|null | | 5종 중 하나 | **운동 랭킹 집계 키** |
+| `foods` | string[] | | 12종에서 선택 | **음식 랭킹 집계 키** |
+
 **설계상 중요한 결정 세 가지**
 
-1. **미입력은 `null`로 통일한다.** `undefined`는 `JSON.stringify`에서 키째 사라져
-   내보내기 → 가져오기 왕복에 필드 유무가 달라진다.
-2. **빈 문자열은 `0`이 아니라 미입력이다.** `Number('')`는 `0`이라 그냥 넘기면
-   체중 0kg가 저장되고 평균 계산이 무너진다.
-3. **`exercise`와 `foods`는 선택형 입력으로만 받는다.** 랭킹의 집계 키이기 때문에
-   자유 텍스트면 "닭가슴살"과 "닭 가슴살"이 다른 항목이 돼 순위가 무너진다.
+**1. 미입력은 `null`로 통일한다**
 
-`foods`만 `null` 대신 `[]`를 쓴다. `analytics.js`가 `a.foods || []`로 읽고 있어 배열로 통일하는 편이 일관된다.
+`undefined`는 `JSON.stringify`에서 키째 사라진다. 그러면 내보내기 → 가져오기 왕복에
+필드 유무가 달라지고, 읽는 쪽 가드를 두 벌 써야 한다.
+
+```js
+JSON.stringify({ a: undefined })   // '{}'         키가 사라짐
+JSON.stringify({ a: null })        // '{"a":null}' 유지됨
+
+const has = (v) => v != null && !Number.isNaN(v);   // null·undefined 동시에 잡는다
+```
+
+실제로 26건 왕복 테스트에서 `kcalIn: null` 6건이 그대로 보존되는 것을 확인했다.
+
+**2. 빈 문자열은 `0`이 아니라 미입력이다**
+
+```js
+Number('')        // 0     <-- 그냥 넘기면 체중 0kg 가 저장된다
+Number.isInteger(parseInt('3.7'))   // true  <-- 3 이 되어 정수 검사를 통과한다
+```
+
+체중 0kg 한 건이 섞이면 평균이 무너지고 추이 그래프가 바닥으로 꺾인다.
+`store.js`가 저장 직전에 빈 문자열을 `null`로 바꾼다.
+
+**3. `exercise`와 `foods`는 선택형 입력으로만 받는다**
+
+둘 다 **랭킹의 집계 키**다. 자유 텍스트로 받으면 순위가 무너진다.
+
+```
+자유 텍스트:  "닭가슴살"(3건)  "닭 가슴살"(2건)  "닭가슴살 "(1건)
+              -> 서로 다른 항목 3개. 전부 표본 3건 미만이라 순위에서 탈락
+
+선택형:       "닭가슴살"(6건)
+              -> 표본 6건. 순위에 오른다
+```
+
+그래서 `store.js`가 `EXERCISES` · `FOODS` 목록에 없는 값을 걸러낸다.
+`foods`만 `null` 대신 `[]`를 쓰는데, `analytics.js`가 `a.foods || []`로 읽고 있어
+배열로 통일하는 편이 일관되기 때문이다.
+
+### 6.6 랭킹이 스키마에 요구하는 것
+
+감량 효과 랭킹은 다른 통계보다 데이터 조건이 까다롭다. 샘플 생성기가 이 조건을 맞춘다.
+
+| 조건 | 이유 | 실측 |
+|---|---|---|
+| `weightKg`가 **매일** 존재 | 날짜 간 차이로 변화량을 구한다 | 26건 전부 존재 |
+| 기록 간격 **3일 이하** | 그 이상 벌어지면 인과를 특정할 수 없어 구간을 버린다 | 최대 간격 2일 |
+| 항목당 표본 **3건 이상** | 우연이 순위에 섞이는 것을 막는다 | Top3 전부 n>=3 |
+| 음식 목록에 **증량 항목 포함** | 없으면 회피 항목이 항상 빈 배열 | 치킨·피자·라면 등 5종 |
+
+이 조건이 깨지면 랭킹만 빈 배열이 되고, 나머지 통계는 정상 동작한다.
 
 ---
 
