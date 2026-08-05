@@ -246,11 +246,53 @@ const Store = (function () {
     localStorage.removeItem(KEY);
   }
 
+  function exportJson() {
+    return JSON.stringify(getAll(), null, 2);
+  }
+
+  // 시스템 경계다. 남이 준 파일을 믿지 않고 add와 같은 검증에 태운다.
+  function importJson(text) {
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch (error) {
+      return { ok: false, added: 0, skipped: 0, message: 'JSON 형식이 아닙니다' };
+    }
+    if (!Array.isArray(parsed)) {
+      return { ok: false, added: 0, skipped: 0, message: '활동 목록 배열이 아닙니다' };
+    }
+
+    const list = readRaw();
+    let added = 0;
+    let skipped = 0;
+
+    parsed.forEach(function (item) {
+      if (item == null || Object.keys(validate(item)).length > 0) {
+        skipped += 1;
+        return;
+      }
+      const activity = buildActivity(item);
+      // id는 항상 새로 발급한다. 겹치면 삭제가 엉뚱한 기록을 지운다.
+      // createdAt은 살린다. 새로 만들면 가져온 기록이 전부 "지금"이 되어 순서를 잃는다.
+      if (typeof item.createdAt === 'string' && !Number.isNaN(Date.parse(item.createdAt))) {
+        activity.createdAt = item.createdAt;
+      }
+      list.push(activity);
+      added += 1;
+    });
+
+    write(list);
+    const tail = skipped > 0 ? `, ${skipped}건은 형식이 맞지 않아 건너뛰었습니다` : '';
+    return { ok: true, added: added, skipped: skipped, message: `${added}건을 가져왔습니다${tail}` };
+  }
+
   return {
     getAll: getAll,
     add: add,
     remove: remove,
     clearAll: clearAll,
     seedSampleData: seedSampleData,
+    exportJson: exportJson,
+    importJson: importJson,
   };
 })();
