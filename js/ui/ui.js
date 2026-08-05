@@ -161,7 +161,7 @@
 
     rows.forEach(function (r) {
       var el = document.createElement('div');
-      el.className = 'bar';
+      el.className = 'bar-row';   // 헤더의 .bar와 충돌하지 않게 따로 쓴다
       el.innerHTML =
         '<span class="bar__key"></span>' +
         '<span class="bar__track"><span class="bar__fill" style="width:' +
@@ -264,6 +264,9 @@
               String(d.getDate()).padStart(2, '0');
     form.elements.date.value = iso;
     form.elements.date.max = iso;
+
+    var head = $('todayDate');
+    if (head) head.textContent = iso.replace(/-/g, '. ');
   }
 
   resetDate();
