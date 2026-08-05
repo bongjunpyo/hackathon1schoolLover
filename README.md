@@ -214,7 +214,7 @@ start index.html         # Windows
   JSON.parse()  ---- 깨진 값 --> []  (throw 하지 않는다)
     |
     v
-  createdAt 내림차순 정렬
+  date 내림차순 정렬        같은 날이면 createdAt 내림차순
     |
     v
   Activity[]
