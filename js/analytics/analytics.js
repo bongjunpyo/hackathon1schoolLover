@@ -567,3 +567,7 @@ const Analytics = {
   hourPerformance: hourPerformance,
   estimateKcalOut: estimateKcalOut,
 };
+
+// 최상위 const 는 전역 렉시컬 스코프에 들어갈 뿐 window 에 붙지 않는다.
+// ui.js 가 window[name] 으로 모듈 존재를 확인하므로 명시적으로 올린다.
+window.Analytics = Analytics;
