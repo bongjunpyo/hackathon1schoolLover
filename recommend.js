@@ -6,16 +6,12 @@ const SEOUL = { latitude: 37.5665, longitude: 126.978 };
 const FORECAST_URL = 'https://api.open-meteo.com/v1/forecast';
 const ARCHIVE_URL = 'https://archive-api.open-meteo.com/v1/archive';
 
-// 날씨 버킷별 기본 추천. 개인 기록이 부족할 때 쓴다.
-const FALLBACK_BY_WEATHER = {
-  비: { category: '근력', place: '실내' },
-  한랭: { category: '근력', place: '실내' },
-  선선: { category: '유산소', place: '야외' },
-  쾌적: { category: '유산소', place: '야외' },
-  더움: { category: '근력', place: '실내' },
-};
+// 실내에서 하기 좋은 카테고리. 날씨가 나쁜 날의 대체 후보다.
+const INDOOR_CATEGORIES = ['근력', '스트레칭'];
+// 야외 운동이 어려운 날씨
+const BAD_WEATHER_BUCKETS = ['비', '더움', '한랭'];
 
-const MIN_SAMPLES_FOR_PERSONAL = 3;
+const FORECAST_DAYS = 7;
 const EXERCISE_START_HOUR = 6;
 const EXERCISE_END_HOUR = 21;
 const WINDOW_HOURS = 2;
@@ -24,25 +20,38 @@ const RAINY_CHANCE = 50;
 const HEAT_ALERT_TEMP = 31;
 const COLD_ALERT_TEMP = -5;
 
-// 오늘 시간별 예보를 받아온다
-async function fetchTodayForecast(location) {
+// 앞으로 며칠치 예보를 하루 단위로 묶어 받아온다
+async function fetchUpcomingForecast(location, days) {
   const params = new URLSearchParams({
     latitude: location.latitude,
     longitude: location.longitude,
-    hourly: 'temperature_2m,apparent_temperature,precipitation_probability',
+    daily: 'temperature_2m_mean,precipitation_sum',
+    hourly: 'apparent_temperature,precipitation_probability',
     timezone: 'Asia/Seoul',
-    forecast_days: '1',
+    forecast_days: String(days || FORECAST_DAYS),
   });
   const response = await fetch(FORECAST_URL + '?' + params);
-  if (!response.ok) throw new Error('오늘 예보를 불러오지 못했습니다');
+  if (!response.ok) throw new Error('예보를 불러오지 못했습니다');
 
   const data = await response.json();
-  return {
-    hours: data.hourly.time.map((t) => Number(t.slice(11, 13))),
-    temperature: data.hourly.temperature_2m,
-    apparentTemperature: data.hourly.apparent_temperature,
-    rainChance: data.hourly.precipitation_probability,
-  };
+  return data.daily.time.map((date, index) => ({
+    date: date,
+    tempMean: data.daily.temperature_2m_mean[index],
+    precipSum: data.daily.precipitation_sum[index],
+    hourly: extractHoursForDate(data.hourly, date),
+  }));
+}
+
+// 시간별 예보 배열에서 특정 날짜분만 뽑아낸다
+function extractHoursForDate(hourly, date) {
+  const picked = { hours: [], apparentTemperature: [], rainChance: [] };
+  hourly.time.forEach((timestamp, index) => {
+    if (timestamp.slice(0, 10) !== date) return;
+    picked.hours.push(Number(timestamp.slice(11, 13)));
+    picked.apparentTemperature.push(hourly.apparent_temperature[index]);
+    picked.rainChance.push(hourly.precipitation_probability[index]);
+  });
+  return picked;
 }
 
 // 과거 날씨를 받아 날짜별 객체로 만든다
@@ -127,37 +136,46 @@ function pickBestWindow(hourScores) {
   return best;
 }
 
-// 추천 시간대의 예보로 오늘의 날씨 버킷을 정한다
-// 강수확률 50% 이상이면 비 온 날(1mm)로 취급해 과거 분류 기준과 맞춘다
-function todayWeatherBucket(window) {
-  const temps = window.detail.map((d) => d.apparentTemperature);
-  const maxRainChance = Math.max(...window.detail.map((d) => d.rainChance));
-  const precipSum = maxRainChance >= RAINY_CHANCE ? 1 : 0;
-  return classifyWeather(mean(temps), precipSum);
-}
+// Top3 운동 중 그날 날씨에 맞는 것을 고른다
+// 1순위 같은 날씨에서 실제로 해본 운동, 2순위 실내 운동, 3순위 효과 1위 그대로
+// 전날과 같은 운동은 회복을 위해 뒤로 미룬다
+function pickExerciseForDay(rankedExercises, profiles, exerciseCountsByWeather, bucket, previousName) {
+  if (rankedExercises.length === 0) return null;
 
-// 날씨에 맞는 운동을 고른다. 개인 기록이 충분하면 그것을 우선한다.
-function pickCategory(bucket, weatherPreferences) {
-  const fallback = FALLBACK_BY_WEATHER[bucket];
-  const personal = weatherPreferences.find((p) => p.bucket === bucket);
+  const rotated = rankedExercises.filter((item) => item.name !== previousName);
+  const pool = rotated.length > 0 ? rotated : rankedExercises;
 
-  if (personal && personal.total >= MIN_SAMPLES_FOR_PERSONAL) {
-    return {
-      category: personal.topCategory,
-      place: personal.topPlace || fallback.place,
-      source: 'personal',
-      share: personal.share,
-      total: personal.total,
-    };
+  const doneInBucket = exerciseCountsByWeather[bucket] || {};
+  for (const item of pool) {
+    if (doneInBucket[item.name]) {
+      return {
+        name: item.name,
+        expectedChange: item.avgChangePerDay,
+        basis: 'history',
+        historyCount: doneInBucket[item.name],
+      };
+    }
   }
-  return { category: fallback.category, place: fallback.place, source: 'fallback' };
+
+  if (BAD_WEATHER_BUCKETS.indexOf(bucket) !== -1) {
+    for (const item of pool) {
+      const profile = profiles[item.name];
+      if (profile && INDOOR_CATEGORIES.indexOf(profile.category) !== -1) {
+        return { name: item.name, expectedChange: item.avgChangePerDay, basis: 'indoor' };
+      }
+    }
+  }
+
+  const best = pool[0];
+  return { name: best.name, expectedChange: best.avgChangePerDay, basis: 'top' };
 }
 
-// 폭염이나 한파면 장소를 실내로 되돌린다. 안전이 개인 선호보다 앞선다.
+// 폭염, 한파, 비면 장소를 실내로 되돌린다. 안전이 개인 선호보다 앞선다.
 function applySafetyOverride(window, place) {
   const temps = window.detail.map((d) => d.apparentTemperature);
   const maxTemp = Math.max(...temps);
   const minTemp = Math.min(...temps);
+  const maxRainChance = Math.max(...window.detail.map((d) => d.rainChance));
 
   if (maxTemp >= HEAT_ALERT_TEMP) {
     return { place: '실내', warning: `체감 ${maxTemp.toFixed(1)}도로 폭염 수준이라 실내 운동을 권한다` };
@@ -165,82 +183,103 @@ function applySafetyOverride(window, place) {
   if (minTemp <= COLD_ALERT_TEMP) {
     return { place: '실내', warning: `체감 ${minTemp.toFixed(1)}도로 한파 수준이라 실내 운동을 권한다` };
   }
+  if (maxRainChance >= RAINY_CHANCE) {
+    return { place: '실내', warning: `강수확률 ${maxRainChance}%라 실내 운동을 권한다` };
+  }
   return { place: place, warning: null };
 }
 
-// 추천 근거 문장을 만든다
-function buildReasons(bucket, window, choice, effects, performance, warning) {
+// 하루치 추천 근거 문장을 만든다
+function buildDayReasons(bucket, window, choice, performance, warning) {
   const reasons = [];
   const avgTemp = mean(window.detail.map((d) => d.apparentTemperature)).toFixed(1);
   const maxRainChance = Math.max(...window.detail.map((d) => d.rainChance));
+  // 버킷은 하루 평균 기온으로 정하고, 아래 체감온도는 추천 시간대 값이라 서로 다를 수 있다
   reasons.push(
-    `${window.startHour}시~${window.endHour}시는 체감 ${avgTemp}도, 강수확률 ${maxRainChance}%로 오늘 운동 가능 시간대 중 점수가 가장 높다`
+    `하루 평균으로는 '${bucket}' 날씨다. 추천 시간대는 체감 ${avgTemp}도, 강수확률 ${maxRainChance}%다`
   );
   if (warning) reasons.push(warning);
 
-  if (choice.source === 'personal') {
-    const percent = Math.round(choice.share * 100);
+  if (choice.basis === 'history') {
     reasons.push(
-      `'${bucket}' 날씨에는 ${withParticle(choice.category, '을', '를')} 가장 많이 했다 (${choice.total}건 중 ${percent}%)`
+      `'${bucket}' 날씨에 ${withParticle(choice.name, '을', '를')} ${choice.historyCount}회 했던 기록이 있다`
     );
+  } else if (choice.basis === 'indoor') {
+    reasons.push('야외 운동이 어려운 날씨라 실내 운동으로 바꿨다');
   } else {
-    reasons.push(`'${bucket}' 날씨 기록이 ${MIN_SAMPLES_FOR_PERSONAL}건 미만이라 기본 추천을 적용했다`);
+    reasons.push(`'${bucket}' 날씨 기록이 없어 감량 효과 1위 운동을 그대로 배치했다`);
   }
 
-  const effect = effects.find((e) => e.category === choice.category);
-  if (effect) {
-    reasons.push(
-      `${withParticle(choice.category, '은', '는')} 체중 변화와 상관 r=${effect.correlation.toFixed(2)} (${effect.strength}, ${effect.weekCount}주 기준)`
-    );
-  }
+  const changeText = choice.expectedChange.toFixed(3);
+  reasons.push(`${withParticle(choice.name, '은', '는')} 하루당 ${changeText}kg 변화를 보였다`);
 
   const slotName = findTimeSlot(window.startHour);
   const slotPerformance = performance.find((p) => p.slot === slotName);
   if (slotPerformance && performance.length >= 2) {
-    reasons.push(
-      `${slotName} 시간대 평균 지속시간은 ${slotPerformance.avgDuration}분이다 (${slotPerformance.count}회 기준)`
-    );
+    reasons.push(`${slotName} 시간대 평균 지속시간은 ${slotPerformance.avgDuration}분이다`);
   }
   return reasons;
 }
 
-// 날씨와 지난 기록을 합쳐 오늘의 추천을 만든다
-function buildRecommendation(activities, forecast, pastWeatherByDate) {
-  const window = pickBestWindow(scoreHours(forecast, hourPreferenceMap(activities)));
-  if (window === null) return null;
+// 감량 효과 Top3와 예보를 맞춰 앞으로 며칠치 계획을 세운다
+function buildPlan(activities, upcomingForecast, pastWeatherByDate) {
+  const exercises = topExercises(activities, 3);
+  const foods = topFoods(activities, 3);
+  const profiles = exerciseProfiles(activities);
+  const countsByWeather = exercisesByWeather(activities, pastWeatherByDate);
+  const hourPreference = hourPreferenceMap(activities);
+  const performance = hourPerformance(activities);
 
-  const bucket = todayWeatherBucket(window);
-  const choice = pickCategory(bucket, weatherPreference(activities, pastWeatherByDate));
-  const safety = applySafetyOverride(window, choice.place);
+  const days = [];
+  let cumulativeChange = 0;
+  let previousExercise = null;
+
+  for (const forecast of upcomingForecast) {
+    const window = pickBestWindow(scoreHours(forecast.hourly, hourPreference));
+    if (window === null) continue;
+
+    const bucket = classifyWeather(forecast.tempMean, forecast.precipSum);
+    const choice = pickExerciseForDay(exercises, profiles, countsByWeather, bucket, previousExercise);
+    if (choice) previousExercise = choice.name;
+    const profile = choice ? profiles[choice.name] : null;
+    const safety = applySafetyOverride(window, profile ? profile.place : null);
+    if (choice) cumulativeChange += choice.expectedChange;
+
+    days.push({
+      date: forecast.date,
+      weatherBucket: bucket,
+      exercise: choice ? choice.name : null,
+      place: safety.place || '자유',
+      startHour: window.startHour,
+      endHour: window.endHour,
+      expectedChange: choice ? choice.expectedChange : 0,
+      cumulativeChange: cumulativeChange,
+      warning: safety.warning,
+      reasons: choice
+        ? buildDayReasons(bucket, window, choice, performance, safety.warning)
+        : [`하루 평균으로는 '${bucket}' 날씨다`, '감량 효과가 확인된 운동이 아직 없다'],
+    });
+  }
 
   return {
-    weatherBucket: bucket,
-    category: choice.category,
-    place: safety.place,
-    startHour: window.startHour,
-    endHour: window.endHour,
-    source: choice.source,
-    warning: safety.warning,
-    reasons: buildReasons(
-      bucket,
-      window,
-      choice,
-      categoryEffect(activities),
-      hourPerformance(activities),
-      safety.warning
-    ),
+    topExercises: exercises,
+    topFoods: foods,
+    avoidExercises: worstExercises(activities, 3),
+    avoidFoods: worstFoods(activities, 3),
+    days: days,
+    totalExpectedChange: cumulativeChange,
   };
 }
 
-// 날씨를 받아와 추천까지 한 번에 만든다
-async function loadRecommendation(activities, location) {
+// 예보와 과거 날씨를 받아와 계획까지 한 번에 만든다
+async function loadPlan(activities, location, days) {
   const target = location || SEOUL;
-  const forecast = await fetchTodayForecast(target);
+  const upcoming = await fetchUpcomingForecast(target, days);
 
   const dates = activities.map((a) => a.date).filter(Boolean).sort();
   let pastWeather = {};
   if (dates.length > 0) {
     pastWeather = await fetchPastWeather(target, dates[0], dates[dates.length - 1]);
   }
-  return buildRecommendation(activities, forecast, pastWeather);
+  return buildPlan(activities, upcoming, pastWeather);
 }
