@@ -117,7 +117,8 @@ function findTimeSlot(hour) {
 }
 
 // 체중 기록에 회귀선을 그려 주당 감량 속도를 구한다
-function weightTrend(activities) {
+// 계약의 weightTrend(시계열)와 이름이 겹치지 않도록 Regression 으로 둔다
+function weightRegression(activities) {
   const records = activities
     .filter((a) => typeof a.weightKg === 'number' && a.date)
     .sort((a, b) => a.date.localeCompare(b.date));
@@ -438,6 +439,106 @@ function exercisesByWeather(activities, weatherByDate) {
   return counts;
 }
 
+// 카테고리별 분당 소모 칼로리. 근거 있는 정밀도가 아니라 근사치다.
+const KCAL_PER_MIN = { 유산소: 10, 근력: 6, 스트레칭: 3 };
+
+// 활동 1건의 소모 칼로리를 추정한다
+// 표에 없는 카테고리는 계산에서 제외하고 null 을 돌려준다
+function estimateKcalOut(activity) {
+  if (typeof activity.durationMin !== 'number') return null;
+  const perMinute = KCAL_PER_MIN[activity.category];
+  if (perMinute === undefined) return null;
+  return perMinute * activity.durationMin;
+}
+
+// 전체 활동의 건수, 참여 인원, 운동 시간을 합계와 평균으로 요약한다
+function summary(activities) {
+  const members = activities.map((a) => a.memberCount).filter((n) => typeof n === 'number');
+  const minutes = activities.map((a) => a.durationMin).filter((n) => typeof n === 'number');
+
+  let totalMembers = 0;
+  for (const n of members) totalMembers += n;
+  let totalMin = 0;
+  for (const n of minutes) totalMin += n;
+
+  return {
+    totalCount: activities.length,
+    totalMembers: totalMembers,
+    avgMembers: members.length === 0 ? 0 : totalMembers / members.length,
+    totalMin: totalMin,
+    avgMin: minutes.length === 0 ? 0 : totalMin / minutes.length,
+  };
+}
+
+// 월별 활동 횟수를 오름차순으로 센다
+function monthlyCount(activities) {
+  const counts = {};
+  for (const a of activities) {
+    if (!a.date) continue;
+    const month = a.date.slice(0, 7);
+    counts[month] = (counts[month] || 0) + 1;
+  }
+  return Object.keys(counts)
+    .sort()
+    .map((month) => ({ month: month, count: counts[month] }));
+}
+
+// 카테고리별 활동 건수와 총 운동 시간을 건수 내림차순으로 낸다
+function byCategory(activities) {
+  const totals = {};
+  for (const a of activities) {
+    if (!a.category) continue;
+    if (!totals[a.category]) {
+      totals[a.category] = { category: a.category, count: 0, totalMin: 0 };
+    }
+    totals[a.category].count += 1;
+    if (typeof a.durationMin === 'number') totals[a.category].totalMin += a.durationMin;
+  }
+  return Object.keys(totals)
+    .map((key) => totals[key])
+    .sort((a, b) => b.count - a.count);
+}
+
+// 체중 기록만 날짜 오름차순 시계열로 만든다
+// 같은 날짜에 기록이 여러 건이면 배열에서 마지막 것을 쓴다 (평균 아님)
+function weightSeries(activities) {
+  const weightByDate = new Map();
+  for (const a of activities) {
+    if (typeof a.weightKg !== 'number' || !a.date) continue;
+    weightByDate.set(a.date, a.weightKg);
+  }
+  return Array.from(weightByDate.keys())
+    .sort()
+    .map((date) => ({ date: date, weightKg: weightByDate.get(date) }));
+}
+
+// 날짜별 섭취/소모 칼로리 수지를 낸다
+// kcalOut 은 같은 날 기록을 합산한다. 하루에 두 번 운동하면 소모도 두 번이다.
+// kcalIn 이 없는 날은 0으로 채우지 않고 null 로 둔다. net 도 null 이다.
+function kcalBalance(activities) {
+  const byDate = {};
+
+  for (const a of activities) {
+    if (!a.date) continue;
+    if (!byDate[a.date]) byDate[a.date] = { date: a.date, kcalIn: null, kcalOut: 0 };
+    // kcalIn 은 그날 전체 섭취량이라 합산하지 않고 마지막 기록으로 덮는다
+    if (typeof a.kcalIn === 'number') byDate[a.date].kcalIn = a.kcalIn;
+    const burned = estimateKcalOut(a);
+    if (burned !== null) byDate[a.date].kcalOut += burned;
+  }
+
+  return Object.keys(byDate)
+    .sort()
+    .map((date) => byDate[date])
+    .filter((day) => day.kcalIn !== null || day.kcalOut > 0)
+    .map((day) => ({
+      date: day.date,
+      kcalIn: day.kcalIn,
+      kcalOut: day.kcalOut,
+      net: day.kcalIn === null ? null : day.kcalIn - day.kcalOut,
+    }));
+}
+
 // 한글 받침 유무에 맞는 조사를 붙인다
 function withParticle(word, particleWithJong, particleWithoutJong) {
   const HANGUL_START = 0xac00;
@@ -447,3 +548,22 @@ function withParticle(word, particleWithJong, particleWithoutJong) {
   const hasJong = (code - HANGUL_START) % 28 !== 0;
   return word + (hasJong ? particleWithJong : particleWithoutJong);
 }
+
+// 전역 노출. file:// 에서는 ES 모듈이 막히므로 일반 script 태그 + 전역 객체를 쓴다.
+const Analytics = {
+  // --- 인터페이스 계약 (CLAUDE.md 합의) ---
+  summary: summary,
+  monthlyCount: monthlyCount,
+  byCategory: byCategory,
+  weightTrend: weightSeries,
+  kcalBalance: kcalBalance,
+
+  // --- 차별화 확장: 감량 효과 랭킹 ---
+  topExercises: topExercises,
+  topFoods: topFoods,
+  worstExercises: worstExercises,
+  worstFoods: worstFoods,
+  weightRegression: weightRegression,
+  hourPerformance: hourPerformance,
+  estimateKcalOut: estimateKcalOut,
+};
