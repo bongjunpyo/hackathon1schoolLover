@@ -97,8 +97,13 @@ function scoreHours(forecast, hourPreference) {
     const hour = forecast.hours[i];
     if (hour < EXERCISE_START_HOUR || hour > EXERCISE_END_HOUR) continue;
 
-    const comfort = comfortScore(forecast.apparentTemperature[i]);
-    const dryness = 1 - forecast.rainChance[i] / 100;
+    const apparentTemp = forecast.apparentTemperature[i];
+    const rainChance = forecast.rainChance[i];
+    // 예보는 뒤쪽 날짜일수록 값이 비어 올 수 있다. 빈 시간은 후보에서 뺀다.
+    if (typeof apparentTemp !== 'number' || typeof rainChance !== 'number') continue;
+
+    const comfort = comfortScore(apparentTemp);
+    const dryness = 1 - rainChance / 100;
     const personal = hourPreference[hour];
 
     scores.push({
@@ -107,8 +112,8 @@ function scoreHours(forecast, hourPreference) {
       comfort: comfort,
       dryness: dryness,
       personal: personal,
-      apparentTemperature: forecast.apparentTemperature[i],
-      rainChance: forecast.rainChance[i],
+      apparentTemperature: apparentTemp,
+      rainChance: rainChance,
     });
   }
   return scores;
@@ -235,6 +240,10 @@ function buildPlan(activities, upcomingForecast, pastWeatherByDate) {
   let previousExercise = null;
 
   for (const forecast of upcomingForecast) {
+    // 일별 값이 비어 있으면 날씨를 분류할 수 없다. 그 날은 건너뛴다.
+    if (typeof forecast.tempMean !== 'number') continue;
+    if (typeof forecast.precipSum !== 'number') continue;
+
     const window = pickBestWindow(scoreHours(forecast.hourly, hourPreference));
     if (window === null) continue;
 
@@ -272,14 +281,50 @@ function buildPlan(activities, upcomingForecast, pastWeatherByDate) {
 }
 
 // 예보와 과거 날씨를 받아와 계획까지 한 번에 만든다
+// → { ok: true, plan } | { ok: false, reason: '한글 메시지' }
+//
+// 이 함수는 절대 throw 하지 않는다. 날씨는 외부 의존이라 없을 수 있고,
+// 그때 화면 전체가 죽으면 안 된다. 추천 영역만 접고 나머지는 그대로 둔다.
+// file:// 로 열면 Origin 이 null 이라 fetch 가 막힐 수 있는데, 그것도 여기서 흡수한다.
 async function loadPlan(activities, location, days) {
   const target = location || SEOUL;
-  const upcoming = await fetchUpcomingForecast(target, days);
 
-  const dates = activities.map((a) => a.date).filter(Boolean).sort();
+  let upcoming;
   let pastWeather = {};
-  if (dates.length > 0) {
-    pastWeather = await fetchPastWeather(target, dates[0], dates[dates.length - 1]);
+  try {
+    upcoming = await fetchUpcomingForecast(target, days);
+
+    const dates = activities.map((a) => a.date).filter(Boolean).sort();
+    if (dates.length > 0) {
+      pastWeather = await fetchPastWeather(target, dates[0], dates[dates.length - 1]);
+    }
+  } catch (error) {
+    return { ok: false, reason: '날씨 정보를 불러오지 못해 계획을 만들 수 없습니다' };
   }
-  return buildPlan(activities, upcoming, pastWeather);
+
+  const plan = buildPlan(activities, upcoming, pastWeather);
+  if (plan.days.length === 0) {
+    return { ok: false, reason: '예보에서 운동할 만한 시간대를 찾지 못했습니다' };
+  }
+  if (plan.topExercises.length === 0) {
+    return { ok: false, reason: '체중 기록이 부족해 감량 효과를 계산할 수 없습니다' };
+  }
+  return { ok: true, plan: plan };
 }
+
+// 전역 노출. file:// 에서는 ES 모듈이 막히므로 일반 script 태그 + 전역 객체를 쓴다.
+// analytics.js 가 먼저 로드되어 있어야 한다.
+const Recommend = {
+  // 네트워크까지 포함한 진입점. throw 하지 않고 { ok } 로 돌려준다.
+  loadPlan: loadPlan,
+
+  // 순수 함수 진입점. 예보 데이터를 직접 넣으면 네트워크 없이 계획을 만든다.
+  // 테스트와 오프라인 시연은 이쪽을 쓴다.
+  buildPlan: buildPlan,
+
+  // 날씨만 따로 받아야 할 때 쓴다. 실패하면 throw 하므로 호출부가 감싸야 한다.
+  fetchUpcomingForecast: fetchUpcomingForecast,
+  fetchPastWeather: fetchPastWeather,
+
+  SEOUL: SEOUL,
+};
