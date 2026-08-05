@@ -191,6 +191,42 @@
     });
   }
 
+  // 감량 효과 랭킹. 증감은 색이 아니라 삼각형 방향으로 나타낸다.
+  function renderRank(id, rows, headLabel) {
+    var t = $(id);
+    t.innerHTML =
+      '<thead><tr><th>' + headLabel + '</th><th>하루당 변화</th><th>표본</th></tr>' +
+      '</thead><tbody></tbody>';
+    var body = t.querySelector('tbody');
+
+    if (!rows || !rows.length) {
+      var blank = document.createElement('tr');
+      blank.innerHTML = '<td colspan="3">표본 3회가 쌓이면 표시됩니다.</td>';
+      body.appendChild(blank);
+      return;
+    }
+
+    rows.forEach(function (r) {
+      var tr = document.createElement('tr');
+      tr.innerHTML = '<td></td><td></td><td></td>';
+      var cells = tr.querySelectorAll('td');
+      cells[0].textContent = r.name;
+      // 음수면 감량이다. 부호 대신 방향 삼각형으로 읽힌다
+      cells[1].textContent = (r.avgChangePerDay < 0 ? '▼ ' : '▲ ') +
+        num(Math.abs(r.avgChangePerDay), 2) + 'kg';
+      cells[2].textContent = r.sampleCount + '회';
+      body.appendChild(tr);
+    });
+  }
+
+  // 체중이 늘어난 운동과 음식을 합쳐 증가폭이 큰 순으로 3개만 남긴다
+  function avoidRows(list) {
+    return Analytics.worstExercises(list, 3)
+      .concat(Analytics.worstFoods(list, 3))
+      .sort(function (a, b) { return b.avgChangePerDay - a.avgChangePerDay; })
+      .slice(0, 3);
+  }
+
   function renderStats(list) {
     var box = $('stats');
     if (!list.length || !ready('Analytics')) { box.hidden = true; return; }
@@ -199,6 +235,9 @@
     renderSummary(Analytics.summary(list));
     renderBars('monthly', Analytics.monthlyCount(list), 'month', 'count', '회');
     renderBars('byCategory', Analytics.byCategory(list), 'category', 'count', '회');
+    renderRank('rankExercise', Analytics.topExercises(list, 3), '운동');
+    renderRank('rankFood', Analytics.topFoods(list, 3), '음식');
+    renderRank('rankAvoid', avoidRows(list), '항목');
     renderKcal(Analytics.kcalBalance(list));
   }
 
