@@ -1,0 +1,553 @@
+/* healthydiet — 다크 대시보드.
+   강조는 형광 그린 카드 한 장과 화이트 카드 한 장에만 준다.
+   나머지는 전부 어두운 카드로 눌러 두 장이 눈에 띄게 만든다. */
+
+:root {
+  --bg:      #0E1013;
+  --card:    #181B20;
+  --card-2:  #21252B;
+  --line:    rgba(167, 185, 198, .14);
+
+  --text:    #FBFCFC;
+  --muted:   #A7B9C6;
+  --slate:   #394055;
+
+  --green:   #35D917;
+  --green-2: #37A214;
+  --ink:     #030603;
+  --blue:    #3045C7;
+
+  --r-card:  18px;
+  --r-sm:    10px;
+
+  --display: Archivo, system-ui, sans-serif;
+  --body:    "IBM Plex Sans KR", system-ui, sans-serif;
+  --mono:    "IBM Plex Mono", ui-monospace, monospace;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--body);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+
+.wrap { max-width: 1280px; margin: 0 auto; padding: 0 24px; }
+
+/* ---------- 상단 바 ---------- */
+
+.bar {
+  display: flex; align-items: center; gap: 20px;
+  max-width: 1280px; margin: 0 auto; padding: 18px 24px;
+}
+.bar__logo {
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 900; font-stretch: 76%;
+  font-size: 1.25rem; letter-spacing: -.01em;
+  color: var(--text); text-decoration: none;
+}
+.bar__logo span { color: var(--green); }
+
+.nav {
+  display: flex; gap: 2px;
+  margin-right: auto;
+  padding: 5px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+.nav a {
+  display: flex; align-items: center; gap: 7px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: .875rem; text-decoration: none;
+}
+.nav a:hover { color: var(--text); }
+.nav a.is-current { color: var(--text); background: var(--card-2); }
+.nav a.is-current::before {
+  content: ""; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--green);
+}
+
+.btn {
+  padding: 11px 20px;
+  font-family: var(--body); font-size: .875rem; font-weight: 600;
+  color: var(--text);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  cursor: pointer; text-decoration: none;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.btn:hover { background: var(--card-2); }
+.btn--green { color: var(--ink); background: var(--green); border-color: var(--green); }
+.btn--green:hover { background: #46e82b; }
+
+/* ---------- 랜딩 히어로 ---------- */
+
+.hero {
+  display: grid; grid-template-columns: 1fr 1fr;
+  align-items: center; gap: 56px;
+  padding: 56px 0 72px;
+}
+
+/* ---------- 메인 소개 + 중앙 무대 ---------- */
+
+.intro { padding: 64px 0 8px; text-align: center; }
+.intro h1 {
+  margin: 0 auto 16px;
+  font-family: var(--display); font-weight: 800; font-stretch: 84%;
+  font-size: clamp(2.25rem, 4.6vw, 3.5rem);
+  line-height: 1.08; letter-spacing: -.03em;
+  text-wrap: balance;
+}
+.intro h1 em { font-style: normal; color: var(--green); }
+.intro__lead { max-width: 46ch; margin: 0 auto; color: var(--muted); }
+
+/* 바깥 통이 높고 안쪽 무대가 sticky로 붙는다.
+   그 구간을 지나는 진행도가 단계가 되고, 단계마다 각도와 내용이 바뀐다. */
+.stage { position: relative; height: 420vh; }
+
+.stage__sticky {
+  position: sticky; top: 0;
+  height: 100vh;
+  display: grid; place-items: center;
+  overflow: hidden;
+}
+.stage__inner {
+  position: relative;
+  width: 100%; max-width: 1080px; height: min(78vh, 620px);
+  margin: 0 auto;
+}
+
+.figure {
+  position: absolute; left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  height: min(62vh, 500px);
+  aspect-ratio: 200 / 520;
+  perspective: 1100px;
+}
+.figure__spin {
+  position: absolute; inset: 0;
+  transform-style: preserve-3d;
+  /* 연속 회전이 아니라 단계마다 한 번에 돌아간다 */
+  transition: transform .85s cubic-bezier(.65,.02,.2,1);
+}
+
+/* 모델을 둘러싸고 하나씩 나타나는 기록 카드 */
+.fact {
+  position: absolute;
+  width: 268px;
+  opacity: 0;
+  transform: translateY(16px);
+  transition: opacity .55s ease, transform .55s ease;
+  pointer-events: none;
+}
+.fact.is-in { opacity: 1; transform: none; pointer-events: auto; }
+
+.fact--a { left: 0;   top: 4%; }
+.fact--b { right: 0;  top: 34%; }
+.fact--c { left: 4%;  bottom: 4%; }
+
+.stage__hint {
+  position: absolute; left: 50%; bottom: 26px;
+  transform: translateX(-50%);
+  margin: 0;
+  font-family: var(--mono); font-size: .75rem; color: var(--muted);
+}
+.stage__hint[hidden] { display: none; }
+
+/* 아래는 예전 배치에서 쓰던 것 — 지금은 record.html 미리보기에만 쓴다 */
+.hero__figure { justify-self: center; }
+.figure__ring {
+  position: absolute; left: 50%; bottom: 1%;
+  width: 76%; aspect-ratio: 1;
+  transform: translateX(-50%) rotateX(76deg);
+  border: 1px solid rgba(53, 217, 23, .28);
+  border-radius: 50%;
+  background: repeating-conic-gradient(from 0deg,
+    rgba(53, 217, 23, .35) 0deg .6deg, transparent .6deg 9deg);
+  mask: radial-gradient(circle, transparent 62%, #000 64%);
+}
+@keyframes figure-turn { to { transform: rotateY(360deg); } }
+
+.eyebrow {
+  display: inline-flex; align-items: center; gap: 8px;
+  margin: 0 0 20px;
+  padding: 6px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: .8125rem;
+  color: var(--muted);
+}
+.eyebrow::before {
+  content: ""; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--green);
+}
+
+.hero h1 {
+  margin: 0 0 20px;
+  font-family: var(--display);
+  font-weight: 800; font-stretch: 84%;
+  font-size: clamp(2.5rem, 5.4vw, 4rem);
+  line-height: 1.06; letter-spacing: -.03em;
+}
+.hero h1 em { font-style: normal; color: var(--green); }
+/* `.hero p`로 잡으면 특이도가 .card__big보다 높아 카드 안 숫자까지 눌러버린다.
+   히어로 본문에만 붙는 클래스를 쓴다. */
+.hero__lead { max-width: 44ch; margin: 0 0 30px; color: var(--muted); font-size: 1.0625rem; }
+.hero__actions { display: flex; flex-wrap: wrap; gap: 10px; }
+
+/* 히어로 오른쪽 — 실제 대시보드 카드를 축소해 보여준다 */
+.preview {
+  display: grid; grid-template-columns: 1.15fr 1fr;
+  gap: 14px; padding-bottom: 32px;
+}
+
+.card {
+  padding: 20px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+}
+.card--green { background: var(--green); border-color: var(--green); color: var(--ink); }
+.card--white { background: #FBFCFC; border-color: #FBFCFC; color: var(--ink); }
+.card--tall { grid-row: span 2; }
+
+.card__label { margin: 0; font-size: .8125rem; opacity: .72; }
+.card__big {
+  margin: 6px 0 0;
+  font-family: var(--display);
+  font-weight: 800; font-stretch: 78%;
+  font-size: clamp(2.5rem, 5vw, 3.5rem); line-height: 1;
+  letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums;
+}
+.card__big sub { font-size: .28em; font-weight: 600; vertical-align: baseline; opacity: .6; }
+
+/* 값이 아직 없을 때. 큰 글씨로 대시를 찍으면 막대처럼 보여 고장으로 읽힌다 */
+.ph { font-family: var(--body); font-size: .3em; font-weight: 500; opacity: .6; }
+.ph + sub { display: none; }
+.card__foot { margin: 10px 0 0; font-family: var(--mono); font-size: .6875rem; opacity: .6; }
+
+/* 미니 스파크 막대 */
+.spark { display: flex; align-items: flex-end; gap: 4px; height: 62px; margin-top: 14px; }
+.spark i { flex: 1; background: currentColor; opacity: .22; border-radius: 3px; }
+.spark i.on { opacity: 1; }
+
+/* 랜딩 특징 3장 */
+.feats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; padding-bottom: 72px; }
+.feats h3 { margin: 0 0 6px; font-size: 1rem; }
+.feats p { margin: 0; color: var(--muted); font-size: .875rem; }
+.feats .n {
+  display: block; margin-bottom: 12px;
+  font-family: var(--mono); font-size: .75rem; color: var(--green);
+}
+
+/* ---------- 대시보드 ---------- */
+
+.page-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  flex-wrap: wrap; gap: 10px;
+  padding: 12px 0 22px;
+}
+.page-head h1 {
+  margin: 0;
+  font-family: var(--display); font-weight: 800; font-stretch: 84%;
+  font-size: 1.75rem; letter-spacing: -.02em;
+}
+.page-head time { font-family: var(--mono); font-size: .8125rem; color: var(--muted); }
+
+/* align-items를 안 주면 그린 카드가 목록 높이만큼 늘어나 빈 칸이 생긴다 */
+.grid-2 {
+  display: grid; grid-template-columns: 1fr 1.25fr;
+  align-items: start; gap: 14px; margin-bottom: 14px;
+}
+.stack { display: grid; gap: 14px; padding-bottom: 56px; }
+
+.card h2 {
+  margin: 0 0 14px;
+  font-size: 1rem; font-weight: 600;
+}
+.card h3 {
+  margin: 20px 0 8px;
+  font-size: .8125rem; font-weight: 600; color: var(--muted);
+}
+.count { font-family: var(--mono); font-size: .8125rem; color: var(--muted); font-weight: 400; }
+
+/* 눈금 트랙 — 그린 카드 안에 놓는다 */
+.ruler {
+  position: relative; height: 42px; margin-top: 4px;
+  border-radius: var(--r-sm);
+  background-image: repeating-linear-gradient(90deg,
+    rgba(3, 6, 3, .25) 0 1px, transparent 1px 4%);
+  background-color: rgba(3, 6, 3, .12);
+}
+.ruler__needle {
+  position: absolute; top: -4px; left: 50%;
+  width: 3px; height: calc(100% + 8px);
+  transform: translateX(-50%);
+  border-radius: 2px;
+  background: var(--ink);
+  transition: left .2s ease;
+}
+.ruler__legend {
+  display: flex; justify-content: space-between;
+  margin: 8px 0 0;
+  font-family: var(--mono); font-size: .6875rem; opacity: .62;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 폼 ---------- */
+
+.grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px 16px; }
+.field--wide { grid-column: 1 / -1; }
+
+.field label { display: block; margin-bottom: 5px; font-size: .8125rem; color: var(--muted); }
+.field .unit { opacity: .7; }
+
+.field input,
+.field select {
+  width: 100%;
+  padding: 10px 12px;
+  font-family: var(--mono); font-size: .9375rem;
+  color: var(--text);
+  background: var(--card-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+.field select { font-family: var(--body); }
+.field input::placeholder { color: var(--slate); }
+.field.is-bad input,
+.field.is-bad select { border-color: #E5484D; }
+
+.err { margin: 5px 0 0; font-size: .75rem; color: #FF6169; }
+.err:empty { display: none; }
+
+.form__foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  margin-top: 18px; padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.form__msg { margin: 0; font-size: .8125rem; color: var(--muted); }
+
+/* ---------- 목록 ---------- */
+
+.row {
+  display: grid; grid-template-columns: 58px 1fr auto auto;
+  align-items: center; gap: 14px;
+  padding: 12px 14px; margin-bottom: 8px;
+  background: var(--card-2);
+  border-radius: var(--r-sm);
+}
+.row__date { font-family: var(--mono); font-size: .8125rem; color: var(--green); }
+.row__title { font-size: .9375rem; font-weight: 500; }
+.row__meta { font-size: .75rem; color: var(--muted); }
+.row__nums {
+  font-family: var(--mono); font-size: .8125rem; color: var(--muted);
+  text-align: right; font-variant-numeric: tabular-nums;
+}
+.row__del {
+  padding: 6px 12px;
+  font-family: var(--body); font-size: .75rem;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--line); border-radius: 999px;
+  cursor: pointer;
+}
+.row__del:hover { color: #FF6169; border-color: #FF6169; }
+
+.empty { padding: 28px 0; color: var(--muted); font-size: .9375rem; }
+
+/* ---------- 통계 ---------- */
+
+.summary {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+  gap: 10px; margin: 0;
+}
+.summary div { padding: 14px; background: var(--card-2); border-radius: var(--r-sm); }
+.summary dt { font-size: .75rem; color: var(--muted); }
+.summary dd {
+  margin: 4px 0 0;
+  font-family: var(--display); font-weight: 800; font-stretch: 80%;
+  font-size: 1.375rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.bar-row {
+  display: grid; grid-template-columns: 88px 1fr 58px;
+  align-items: center; gap: 12px;
+  padding: 6px 0;
+  font-size: .8125rem;
+}
+.bar__track {
+  display: block; height: 10px;
+  background: var(--card-2); border-radius: 999px; overflow: hidden;
+}
+.bar__fill { display: block; height: 100%; background: var(--green); border-radius: 999px; }
+.bar__val {
+  font-family: var(--mono); font-size: .75rem; color: var(--muted);
+  text-align: right; font-variant-numeric: tabular-nums;
+}
+
+.table { width: 100%; border-collapse: collapse; font-size: .8125rem; }
+.table th, .table td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--line);
+  font-variant-numeric: tabular-nums;
+}
+.table th { text-align: right; font-size: .75rem; font-weight: 500; color: var(--muted); }
+.table th:first-child, .table td:first-child { text-align: left; padding-left: 0; }
+.table td { text-align: right; font-family: var(--mono); color: var(--muted); }
+.table td:first-child { color: var(--text); }
+
+.note { margin: 12px 0 0; font-size: .75rem; color: var(--muted); }
+.tools { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* ---------- 스크롤 연동 구간 ---------- */
+
+/* 바깥 통이 높고, 안쪽 무대가 sticky로 붙어 있는다.
+   그 높이를 지나는 동안의 진행도가 회전 각도와 단계가 된다. */
+.scroll { position: relative; height: 320vh; }
+
+.scroll__track {
+  position: sticky; top: 0;
+  height: 100vh;
+  display: grid; place-items: center;
+  overflow: hidden;
+}
+.scroll__stage {
+  display: grid; grid-template-columns: 1fr 1fr;
+  align-items: center; gap: 64px;
+  width: 100%; max-width: 1280px; padding: 0 24px;
+}
+
+.scroll__model {
+  position: relative;
+  justify-self: center;
+  height: min(62vh, 520px);
+  aspect-ratio: 200 / 520;
+  perspective: 1100px;
+}
+.scroll__spin {
+  position: absolute; inset: 0;
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+.plane {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+}
+.plane--side { transform: rotateY(90deg); }
+
+.body {
+  stroke: var(--green);
+  stroke-width: 1.6;
+  stroke-linecap: round; stroke-linejoin: round;
+  fill: rgba(53, 217, 23, .07);
+  filter: drop-shadow(0 0 8px rgba(53, 217, 23, .45));
+}
+
+/* 발밑 눈금 링 */
+.scroll__ring {
+  position: absolute; left: 50%; bottom: 1%;
+  width: 76%; aspect-ratio: 1;
+  transform: translateX(-50%) rotateX(76deg);
+  border: 1px solid rgba(53, 217, 23, .3);
+  border-radius: 50%;
+  background: repeating-conic-gradient(from 0deg,
+    rgba(53, 217, 23, .4) 0deg .6deg, transparent .6deg 9deg);
+  mask: radial-gradient(circle, transparent 62%, #000 64%);
+}
+
+.scroll__steps { display: grid; gap: 30px; }
+
+.step {
+  opacity: .22;
+  transition: opacity .35s ease, transform .35s ease;
+  transform: translateY(6px);
+}
+.step.is-on { opacity: 1; transform: none; }
+.step__n {
+  display: block; margin-bottom: 8px;
+  font-family: var(--mono); font-size: .75rem; color: var(--green);
+}
+.step h2 {
+  margin: 0 0 8px;
+  font-family: var(--display); font-weight: 800; font-stretch: 84%;
+  font-size: clamp(1.5rem, 2.6vw, 2.125rem); letter-spacing: -.02em;
+}
+.step p { margin: 0; max-width: 40ch; color: var(--muted); font-size: 1rem; }
+
+/* 진행 막대 */
+.scroll__bar {
+  position: absolute; left: 24px; top: 50%;
+  width: 2px; height: 160px;
+  transform: translateY(-50%);
+  background: var(--line);
+}
+.scroll__bar i {
+  display: block; width: 100%; height: 0;
+  background: var(--green);
+  transition: height .2s ease;
+}
+
+/* ---------- 반응형 ---------- */
+
+@media (max-width: 880px) {
+  .bar { flex-wrap: wrap; gap: 12px; }
+  .nav { order: 3; width: 100%; overflow-x: auto; }
+  .hero, .hero--figure, .grid-2, .preview, .feats { grid-template-columns: 1fr; }
+
+  /* 좁은 화면에서는 겹칠 자리가 없다. sticky를 풀고 위아래로 쌓는다 */
+  .intro { padding: 32px 0 0; }
+  .stage { height: auto; }
+  .stage__sticky { position: static; height: auto; padding: 24px 0 40px; }
+  .stage__inner {
+    height: auto; padding: 0 20px;
+    display: grid; gap: 14px; justify-items: stretch;
+  }
+  .figure {
+    position: static; transform: none;
+    height: 300px; margin: 0 auto 8px;
+  }
+  .fact {
+    position: static; width: auto;
+    opacity: 1; transform: none; pointer-events: auto;
+  }
+  .stage__hint { display: none; }
+  /* 좁은 화면에서는 스크롤 연출을 접는다. 세로로 겹치면 둘 다 안 읽힌다 */
+  .scroll { height: auto; }
+  .scroll__track { position: static; height: auto; padding: 40px 0 56px; }
+  .scroll__stage { grid-template-columns: 1fr; gap: 32px; }
+  .scroll__model { height: 300px; }
+  .scroll__bar { display: none; }
+  .step { opacity: 1; transform: none; }
+  .hero { gap: 36px; padding: 32px 0 48px; }
+  .card--tall { grid-row: auto; }
+  .grid { grid-template-columns: 1fr; }
+  .row { grid-template-columns: 52px 1fr auto; row-gap: 6px; }
+  .row__nums { grid-column: 2 / -1; text-align: left; }
+  .form__foot { flex-direction: column; align-items: stretch; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ruler__needle { transition: none; }
+  /* 회전을 멈추고 세 단계를 한 번에 보여준다. 내용은 전부 읽을 수 있어야 한다 */
+  .scroll { height: auto; }
+  .scroll__track { position: static; height: auto; padding: 40px 0 56px; }
+  .scroll__spin { transform: none !important; }
+  .step { opacity: 1; transform: none; transition: none; }
+  .figure__spin { transition: none; }
+  .fact { opacity: 1; transform: none; transition: none; pointer-events: auto; }
+  /* AOS가 걸어둔 등장 애니메이션도 끈다. 내용은 바로 보여야 한다 */
+  [data-aos] { opacity: 1 !important; transform: none !important; transition: none !important; }
+}
