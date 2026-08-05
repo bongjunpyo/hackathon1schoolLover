@@ -291,12 +291,20 @@ hackathon1schoolLover/
     │   └── CLAUDE.md           데이터 계층 담당 규칙
     ├── analytics/
     │   ├── analytics.js        [준표] 순수 계산 함수. 통계와 감량 효과 랭킹
-    │   ├── recommend.js        [준표] 날씨 기반 계획 (B-2 대기)
+    │   ├── recommend.js        [준표] 날씨 기반 계획
     │   └── CLAUDE.md           데이터 처리 담당 규칙
     └── ui/
         ├── ui.js               [동제] 렌더링, 이벤트, 사용자 확인
         └── CLAUDE.md           프론트엔드 담당 규칙
 ```
+
+**아직 저장소에 없는 파일** — 위 구조는 목표 구조이고, 현재 시점 상태는 다음과 같다.
+
+| 파일 | 상태 |
+|---|---|
+| `index.html` / `style.css` / `js/ui/ui.js` | 작업 중 |
+| `js/analytics/recommend.js` | `BJP` 브랜치. [이슈 #2](../../issues/2)에서 B-2로 연기 |
+| `docs/AI_USAGE.md` | 미작성 |
 
 ### 각 파일이 하는 일
 
