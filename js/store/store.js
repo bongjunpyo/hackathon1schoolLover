@@ -159,6 +159,78 @@ const Store = (function () {
     return { ok: true, activity };
   }
 
+  // 샘플 데이터. 랭킹이 되짚어낼 수 있도록 조합마다 감량 효과를 실제로 심어둔다.
+  const SAMPLE_PLANS = [
+    { exercise: '러닝', category: '유산소', durationMin: 45, place: '한강공원', foods: ['닭가슴살', '샐러드'] },
+    { exercise: '헬스', category: '근력', durationMin: 60, place: '교내 헬스장', foods: ['계란', '현미밥'] },
+    { exercise: '수영', category: '유산소', durationMin: 40, place: '시민수영장', foods: ['두부', '샐러드'] },
+    { exercise: '자전거', category: '유산소', durationMin: 50, place: '중랑천', foods: ['고구마'] },
+    { exercise: '등산', category: '유산소', durationMin: 90, place: '관악산', foods: ['단백질쉐이크'] },
+    { exercise: '헬스', category: '스트레칭', durationMin: 25, place: '동아리방', foods: ['치킨', '탄산음료'] },
+    { exercise: '러닝', category: '유산소', durationMin: 30, place: '학교 운동장', foods: ['라면'] },
+    { exercise: '헬스', category: '근력', durationMin: 55, place: '교내 헬스장', foods: ['피자', '삼겹살'] },
+  ];
+  const LOSING_FOODS = ['닭가슴살', '샐러드', '현미밥', '고구마', '계란', '두부', '단백질쉐이크'];
+
+  // 그날의 체중 변화량. 오래 운동할수록, 감량 음식을 먹을수록 많이 빠진다.
+  function sampleWeightDelta(plan) {
+    let delta = -0.05 - plan.durationMin / 600;
+    plan.foods.forEach(function (name) {
+      delta += LOSING_FOODS.indexOf(name) === -1 ? 0.18 : -0.07;
+    });
+    return delta;
+  }
+
+  function seedSampleData() {
+    const list = readRaw();
+    const now = new Date();
+    let weight = 72.0;
+    let planIndex = 0;
+    let created = 0;
+
+    for (let ago = 29; ago >= 0; ago--) {
+      // 쉬는 날을 두되 연속으로 비우지 않는다. 랭킹은 기록 사이의 체중 변화로
+      // 효과를 귀속시키므로, 간격이 3일을 넘으면 그 구간이 통째로 분석에서 빠진다.
+      if (ago % 7 === 3) continue;
+
+      const plan = SAMPLE_PLANS[planIndex % SAMPLE_PLANS.length];
+      planIndex += 1;
+
+      // 이 기록의 체중은 오늘 선택을 반영하기 전 값이다.
+      // analytics는 기록 이후의 체중 변화를 그 기록에 귀속시킨다 —
+      // 오늘 먹은 것이 다음 측정에 나타나야 랭킹이 심어둔 효과를 되짚어낸다.
+      const weightToday = weight;
+      weight += sampleWeightDelta(plan);
+
+      const at = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ago, 20, 0, 0);
+      const month = String(at.getMonth() + 1).padStart(2, '0');
+      const day = String(at.getDate()).padStart(2, '0');
+
+      list.push({
+        id: newId(),
+        title: `${plan.exercise} ${plan.durationMin}분`,
+        date: `${at.getFullYear()}-${month}-${day}`,
+        place: plan.place,
+        memberCount: 2 + (planIndex % 5),
+        memo: '[샘플] 자동 생성된 기록',
+        // createdAt을 해당 날짜에 맞춘다. 전부 지금 시각이면 목록이 생성 순서대로 나온다.
+        createdAt: (at > now ? now : at).toISOString(),
+
+        category: plan.category,
+        durationMin: plan.durationMin,
+        weightKg: Math.round(weightToday * 10) / 10,
+        // 일부는 비워둔다. analytics의 "없는 값 건너뛰기"가 여기서 실제로 검증된다.
+        kcalIn: planIndex % 4 === 0 ? null : 1600 + (planIndex % 6) * 120,
+        exercise: plan.exercise,
+        foods: plan.foods.slice(),
+      });
+      created += 1;
+    }
+
+    write(list);
+    return created;
+  }
+
   // 삭제 확인창은 UI가 띄운다. 이 파일은 화면을 모른다.
   function remove(id) {
     const list = readRaw();
@@ -179,5 +251,6 @@ const Store = (function () {
     add: add,
     remove: remove,
     clearAll: clearAll,
+    seedSampleData: seedSampleData,
   };
 })();
